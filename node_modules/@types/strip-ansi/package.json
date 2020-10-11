@@ -1,0 +1,14 @@
+{
+    "name": "@types/strip-ansi",
+    "version": "5.2.1",
+    "typings": null,
+    "description": "Stub TypeScript definitions entry for strip-ansi, which provides its own types definitions",
+    "main": "",
+    "scripts": {},
+    "author": "",
+    "repository": "https://github.com/chalk/strip-ansi",
+    "license": "MIT",
+    "dependencies": {
+        "strip-ansi": "*"
+    }
+}

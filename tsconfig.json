@@ -1,0 +1,17 @@
+{
+    "compilerOptions": {
+        "esModuleInterop": true,
+        "experimentalDecorators": true,
+        "moduleResolution": "node",
+        "target": "ES2018",
+        "emitDecoratorMetadata": true,
+        "outDir": "./build",
+        "declaration": true,
+        "sourceMap": true,
+        "module": "commonjs",
+        "noImplicitUseStrict": true
+    },
+    "files": [],
+    "exclude": ["**/node_modules", "**/*.spec.ts", "renewal/addresses.json"],
+    "compileOnSave": true
+}

@@ -1,0 +1,17 @@
+{
+  "name": "ZKnowledge",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "@truffle/hdwallet-provider": "^1.1.0",
+    "random": "^2.2.0",
+    "seedrandom": "^3.0.5",
+    "termx": "^1.1.9",
+    "ts-node-dev": "^1.0.0-pre.63",
+    "web3": "^1.3.0"
+  },
+  "scripts": {
+    "dev": "ts-node-dev index.ts"
+  }
+}
