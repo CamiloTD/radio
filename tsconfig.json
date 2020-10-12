@@ -11,7 +11,7 @@
         "module": "commonjs",
         "noImplicitUseStrict": true
     },
-    "files": [],
+    "files": ["./index.ts", "./zk.ts"],
     "exclude": ["**/node_modules", "**/*.spec.ts", "renewal/addresses.json"],
     "compileOnSave": true
 }
