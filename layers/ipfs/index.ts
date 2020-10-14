@@ -1,8 +1,15 @@
-import path from "path";
-import fs from  "fs";
 import PinataSDK from "@pinata/sdk";
+
+import path from "path";
+
+import fs from  "fs";
+
 import util from "util";
+
 import streamBuffers from "stream-buffers";
+
+import { ERC20Stego } from "../stego";
+import { TYPE_FILEHASH } from "../../types";
 
 export const removeFile = util.promisify(fs.unlink);
 export const readFile = util.promisify(fs.readFile);
@@ -29,44 +36,29 @@ export const writeFile = util.promisify(fs.writeFile);
  
 */
 
-class Storage {
+export class IPFStorage {
 
   pinata: typeof PinataSDK;
+  stego: ERC20Stego;
 
-  constructor (PINATA_KEY: string, PINATA_SECRET: string) {
+  constructor (stego: ERC20Stego, PINATA_KEY: string, PINATA_SECRET: string) {
     this.pinata = PinataSDK(PINATA_KEY, PINATA_SECRET);
+    this.stego = stego;
   }
 
-  async save (data: Buffer) {
-    const readStream = new streamBuffers.ReadableStreamBuffer({
-      frequency: 1,
-      chunkSize: 4096
-    });
+  async save (filename: string) {
+    const { IpfsHash } = await this.pinata.pinFileToIPFS(fs.createReadStream(filename));
 
-    readStream.put(data)
-
-    const { IpfsHash } = await this.pinata.pinFileToIPFS(readStream);
+    console.log(IpfsHash)
+    
     return IpfsHash;
   }
 
-  load (hash: string) {
+  async uploadFile (filename: string) {
+      const hash = await this.save(filename);
+      const tx = await this.stego.hide(Buffer.from(hash), TYPE_FILEHASH);
 
+      return await tx.execute();
   }
 
 }
-
-export async function initIPFS (PINATA_KEY: string, PINATA_SECRET: string) {
-    const pinata = PinataSDK(PINATA_KEY, PINATA_SECRET);
-    await pinata.testAuthentication();
-
-    console.log("Connected to Piñata! 🎉");
-    return pinata;
-}
-
-// export async function uploadFile (filename: string, name?: string) {
-//     const data = await pinata.pinFileToIPFS(fs.createReadStream(filename), name && { pinataMetadata: { name } });
-
-//     console.log("✨ Pinned " + filename + " as https://ipfs.io/ipfs/" + data.IpfsHash);
-
-//     return data;
-// }

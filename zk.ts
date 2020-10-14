@@ -1,35 +1,69 @@
 import Web3 from "web3";
+
 import { log, cold, danger, highlight, warning } from "termx";
+
 import { program } from "commander";
+
 import { prompt } from "inquirer";
-import { Config } from "./types";
-import { generateKeyFile, readKeyFile } from "./utils/keyfile";
+
 import fs from "fs";
+
 import path from "path";
-import { encrypt } from "./utils/aes";
+
+import { Config, CONTENT_TYPE_NAME, TYPE_CALL, TYPE_FILEHASH, TYPE_RAW, TYPE_REDISCMD, TYPE_TEXT } from "./types";
+
+import { IPFStorage } from "./layers/ipfs";
+import { RedisStorage } from "./layers/redis";
 import { ERC20Stego } from "./layers/stego";
+import { encrypt } from "./utils/aes";
+import { generateKeyFile, readKeyFile, resolveConfig } from "./utils/keyfile";
 import { getERC20Name, getEthBalance, getTokenBalance } from "./utils/web3";
 
 program.version("0.0.1");
 
 const Commands = {
 
-    async read (opts, txId: string) {
+    async upload (opts, file: string) {
         const config = await resolveConfig(opts)
         const stego = new ERC20Stego(config);
+        const ipfs = new IPFStorage(stego, config.PINATA_KEY, config.PINATA_SECRET)
+        const txIds = await ipfs.uploadFile(path.resolve(process.cwd(), file));
+
+        log(cold("Tx:"), txIds[0])
+    },
+
+    async read (opts, type: string, txId: string) {
+        const config = await resolveConfig(opts)
+        const stego = new ERC20Stego(config);
+
+        const typeName = CONTENT_TYPE_NAME.indexOf(type);
+
+        if(typeName < 0) throw "Type " + type + " does not exists in the type index, possible values are: " + CONTENT_TYPE_NAME.join(", ");
         
-        console.log((await stego.revealFromTx(txId)).toString())
+        const log = await stego.getTransactionHistory(txId, typeName);
+        console.log(log);
+        
+        //console.log((await stego.revealFromTx(txId)).toString())
     },
 
-    async upload () {
+    async db (opts, txId: string) {
+        const config = await resolveConfig(opts)
+        const stego = new ERC20Stego(config);
+        const redis = new RedisStorage(stego, txId);
+
+        console.log(await redis.init());
 
     },
 
-    async write (opts, data: string) {
+    async write (opts, type: string, data: string) {
         const config = await resolveConfig(opts);
         const stego = new ERC20Stego(config);
 
-        const ex = stego.hide(Buffer.from(data))
+        const typeName = CONTENT_TYPE_NAME.indexOf(type);
+
+        if(typeName < 0) throw "Type " + type + " does not exists in the type index, possible values are: " + CONTENT_TYPE_NAME.join(", ");
+
+        const ex = stego.hide(Buffer.from(data), typeName)
         const txIds = await ex.execute();
 
         console.log("Tx:", cold(txIds[0]));
@@ -146,24 +180,6 @@ const Commands = {
         log("Key", highlight(key), "set to", cold(val));
     }
 
-}
-
-async function resolveConfig (opts): Promise<Config> {
-    if(!opts.key) throw ("No keyfile received, Usage: zk -k secret.key <message>");
-    var { password } = opts.pass? { password: opts.pass } : await prompt([{
-        type: "password",
-        name: "password",
-        message: "Key pass.",
-        mask: true
-    }]);
-
-    opts.pass = password;
-
-    const config: Config = readKeyFile(fs.readFileSync(path.join(process.cwd(), opts.key)), password || "default");
-    // config.NUMBER_OF_FRACTIONS = 1_048_576;
-    
-    // fs.writeFileSync("./secret2.key", generateKeyFile(config, password || "default"))
-    return config;
 }
 
 program.option("-p, --pass <pass>", "File password")

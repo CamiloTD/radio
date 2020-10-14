@@ -1,10 +1,18 @@
-import { log, warning, cold, highlight, danger } from "termx";
-import Web3 from "web3";
 import HDWalletProvider from "@truffle/hdwallet-provider";
+
+import { log, warning, cold, highlight, danger } from "termx";
+
+import Web3 from "web3";
+
+import msgpack from "msgpack";
+
+import { Contract } from "../contracts";
+import { Account, Config, Operation, SendOperation, WaitOperation, CONTENT_TYPE, CONTENT_TYPE_NAME, TYPE_RAW, TYPE_REDISCMD, TYPE_TEXT, TYPE_FILEHASH, TYPE_CALL } from "../../types";
+import { checksum } from "../../utils/aes";
 import { rng } from "../../utils/random";
-import { Account, Config, Operation, SendOperation, WaitOperation } from "../../types";
-import { Stego } from ".";
 import { getERC20Name, getEthBalance, getTokenBalance, sendEthBalance, sendTokenBalance } from "../../utils/web3";
+
+import { Stego } from ".";
 const ERC_20_ABI = require('../../erc20.json');
 
 const STATUS_OK = 0;
@@ -55,10 +63,14 @@ export class ERC20Stego extends Stego<ExecutionPlan> {
         return this.accounts.find(acc => acc.address === address);
     }
 
-    hide (data: Buffer) {
+    async contract (txId: string) {
+        return await Contract(this, txId);
+    }
+
+    hide (data: Buffer, type: CONTENT_TYPE) {
         //? Slices the data in chunks
             var bufs = [];
-            var buf = data;
+            var buf = Buffer.from([type, ...data, ...checksum(data)]);
             var dataHeader = [buf.length & 0xFF];
             buf = Buffer.from([...dataHeader, ...buf])
             var spaceInBytes = Math.floor(this.totalSpace/8);
@@ -99,6 +111,65 @@ export class ERC20Stego extends Stego<ExecutionPlan> {
         
 
         return ops;
+    }
+
+    async getTransactionHistory (txHash?: string, type?: number, totalTransactions?: number) {
+        const tx = txHash? await this.web3.eth.getTransaction(txHash) : { blockNumber: 0 };
+        const addresses = this.accounts.map(acc => acc.address);
+        const erc20Contracts = this.erc20.map(erc20 => new this.web3.eth.Contract(ERC_20_ABI, erc20)) //! ADD PAGINATION
+        const erc20Events = await Promise.all(erc20Contracts.map(contract => 
+            contract.getPastEvents("Transfer", {
+                filter: {
+                    from: addresses,
+                    to: addresses
+                },
+                fromBlock: tx.blockNumber
+            })
+        ));
+        const erc20SortedEvents = erc20Events.reduce((prev, cur) => [...prev, ...cur], []).sort((a, b) => b.blockNumber > a.blockNumber? -1 : b.blockNumber < a.blockNumber? 1 : b.transactionIndex > a.transactionIndex? -1 : 1)
+        // console.log(type, erc20SortedEvents)
+
+        let currentIndex = 0;
+        let log: { type: number, data: Buffer }[] = [];
+        let getOperation = i =>  erc20SortedEvents[i] && (<SendOperation>{
+            type: "send",
+            from: erc20SortedEvents[i].returnValues.from.toLowerCase(),
+            to: erc20SortedEvents[i].returnValues.to.toLowerCase(),
+            value: +erc20SortedEvents[i].returnValues.value,
+            erc20: erc20SortedEvents[i].address.toLowerCase()
+        });
+        
+        while (erc20SortedEvents[currentIndex + 1]) {
+            let currentOp = getOperation(currentIndex + 1)
+            let totalLength = this.getTotalLengthFromHeader(currentOp) * 8;
+            let totalOperations = Math.ceil(totalLength/this.totalSpace);
+            let txToReveal = new ExecutionPlan(this);
+            const txRng = rng(this.chan, "tx");
+            
+            let i = 1;
+            for (let j=0;j<totalOperations;j++) {
+                const op = getOperation(currentIndex + i);
+                if(!op) break;
+
+                txToReveal.push(op)
+                let n = 1 + txRng.int(1, this.maxSpacing)
+                
+                if(j + 1 < totalOperations) i += n;
+            }
+
+            const data = this.reveal(txToReveal);
+
+            if(!data) currentIndex++;
+            else {
+                if(type === undefined || type === data.type) {
+                    log.push(data);
+                    if(totalTransactions && log.length >= totalTransactions) return log.map(parseTransaction);
+                }
+                currentIndex += i;
+            }
+        }
+
+        return log.map(parseTransaction);
     }
 
     async revealFromTx (txHash?: string) {
@@ -168,12 +239,16 @@ export class ERC20Stego extends Stego<ExecutionPlan> {
         ]
     }
 
-    getLengthFromHeader (op: SendOperation) {
+    getBinaryDataFromOperation (op: SendOperation) {
         const binary = this.getBinaryFromCombination([op.from, op.to]).padStart(this.accountsSpace, "0") +
                         (op.value - 1).toString(2).padStart(this.fractionsSpace, "0") +
                         this.erc20.indexOf(op.erc20).toString(2).padStart(this.erc20Space, "0")
+        
+        return binary;
+    }
 
-        return parseInt(binary.substr(0, 8).padStart(8, "0"), 2);
+    getTotalLengthFromHeader (op: SendOperation) {
+        return parseInt(this.getBinaryDataFromOperation(op).substr(0, 8).padStart(8, "0"), 2) + 1;
     }
 
 }
@@ -224,9 +299,28 @@ export class ExecutionPlan extends Array<Operation> {
         }
 
         const length = (data[0]);
+        const buf = Buffer.from(data.slice(1, 1 + length));
+        const dataSlice = buf.slice(0, buf.length - 2);
+        const chkSlice = buf.slice(buf.length - 2);
+        const chk = checksum(dataSlice.slice(1)); //! TODO: FIX THIS EMPANADA
 
-        return Buffer.from(data.slice(1, 1 + length))
-    }
+        // console.log({
+        //      totalTransactions: this.length,
+        //      totalLengthData: data.length,
+        //      length,
+        //      totalBufData: buf,
+        //      dataSlice,
+        //      chkSlice,
+        //      chk
+        // })
+        
+        if(dataSlice[0] >= CONTENT_TYPE_NAME.length || (chk[0] | chk[1]) !== (chkSlice[0] | chkSlice[1])) return null;
+
+        return {
+            type: dataSlice[0],//CONTENT_TYPE_NAME[dataSlice[0]],
+            data: dataSlice.slice(1)
+        }
+    } 
 }
 
 export class Execution {
@@ -356,6 +450,19 @@ export class Execution {
                     value: quantity
                 });
             }
+        }
+    }
+}
+
+export function parseTransaction ({ type, data }) {
+    switch (type) {
+        case TYPE_RAW: return data;
+        case TYPE_REDISCMD:
+        case TYPE_TEXT: return data.toString();
+        case TYPE_FILEHASH: return "https://gateway.pinata.cloud/ipfs/" + data.toString();
+        case TYPE_CALL: return {
+            method: data[0],
+            params: msgpack.unpack(data.slice(1))
         }
     }
 }

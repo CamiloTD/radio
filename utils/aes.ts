@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { crc16 } from "polycrc";
 const IV_LENGTH = 16;
 
 export function encrypt (data, key) {
@@ -11,6 +12,11 @@ export function decrypt (data, key) {
     let cipher = crypto.createDecipher('aes-256-cbc', key);
 
     return Buffer.concat([cipher.update(data), cipher.final()]);
+}
+
+export const checksum = (data: Buffer) => {
+    const crc = (<any>crc16)(data);
+    return Buffer.from([crc & 0xFF00, crc & 0x00FF])
 }
 
 // export function encrypt(data, key) {
