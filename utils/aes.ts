@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { crc16 } from "polycrc";
+import SHA from "sha.js";
 const IV_LENGTH = 16;
 
 export function encrypt (data, key) {
@@ -18,6 +19,8 @@ export const checksum = (data: Buffer) => {
     const crc = (<any>crc16)(data);
     return Buffer.from([crc & 0xFF00, crc & 0x00FF])
 }
+
+export const sha = data => SHA('sha256').update(data).digest('hex');
 
 // export function encrypt(data, key) {
 //     let iv = crypto.randomBytes(IV_LENGTH);

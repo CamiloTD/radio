@@ -7,8 +7,13 @@ async function init () {
         pass: "default"
     }));
 
-    const contract = await stego.contract("0x046c7371fef8f721a2a5c829dde4c1d86139ceebe2160ba9653fb86dce2e5c12");
-    console.log(await contract.count())
+    const contract = await stego.contract("0xf663fad69803d9734e9e7da4fb3a37ac97cab554f6ec2003b8d0ac1da845bd33");
+    
+    // console.log(await contract.addUser("Matt"));
+    // console.log(await contract.addUser("Cami"));
+    // console.log(await contract.addUser("Jose"));
+    
+    console.log(await contract.getAllUsers())
 }
 
 init().catch(console.log)

@@ -5,19 +5,22 @@ import { log, warning, cold, highlight, danger } from "termx";
 import Web3 from "web3";
 
 import msgpack from "msgpack";
+import SHA from "sha.js";
 
 import { Contract } from "../contracts";
-import { Account, Config, Operation, SendOperation, WaitOperation, CONTENT_TYPE, CONTENT_TYPE_NAME, TYPE_RAW, TYPE_REDISCMD, TYPE_TEXT, TYPE_FILEHASH, TYPE_CALL } from "../../types";
-import { checksum } from "../../utils/aes";
+import { Account, Config, Operation, SendOperation, WaitOperation, CONTENT_TYPE, CONTENT_TYPE_NAME, TYPE_RAW, TYPE_REDISCMD, TYPE_TEXT, TYPE_FILEHASH, TYPE_CALL } from "../../utils/types";
+import { checksum, encrypt } from "../../utils/aes";
 import { rng } from "../../utils/random";
 import { getERC20Name, getEthBalance, getTokenBalance, sendEthBalance, sendTokenBalance } from "../../utils/web3";
 
 import { Stego } from ".";
+import { generatePublicConfig } from "../../utils/keyfile";
 const ERC_20_ABI = require('../../erc20.json');
 
 const STATUS_OK = 0;
 const STATUS_NO_GAS = 1;
 const STATUS_NO_TOKEN = 2;
+const balanceCache: { [addr: string]: { [erc: string]: number }} = {};
 
 export class ERC20Stego extends Stego<ExecutionPlan> {
 
@@ -34,6 +37,7 @@ export class ERC20Stego extends Stego<ExecutionPlan> {
     totalSpace: number;
     maxSpacing: number;
     minEth: number;
+    id: string;
 
     constructor (config: Config) {
         super();
@@ -51,12 +55,27 @@ export class ERC20Stego extends Stego<ExecutionPlan> {
         this.erc20Space     = Math.floor(Math.log2(this.erc20.length));
 
         this.totalSpace = this.accountsSpace + this.fractionsSpace + this.erc20Space;
+        this.id = this.getID();
 
         log(cold("New ERC20Stego Created:"));
         log(cold("Account Combinations:"), this.accounts.length ** 2 - this.account.length, highlight(`(${this.accountsSpace} bits)`));
         log(cold("Fractions:"), this.fractions, highlight(`(${this.fractionsSpace} bits)`));
         log(cold("ERC-20s:"), this.erc20.length, highlight(`(${this.erc20Space} bits)`));
         log(cold("Total Space per Transaction:"), this.totalSpace, "bits");
+        log(cold("ID:"), highlight(this.id));
+    }
+
+    getID () {
+        const dataToHash = JSON.stringify([
+            this.accounts,
+            this.fractions,
+            this.erc20,
+            this.chan,
+            this.maxSpacing,
+            this.minEth,
+            this.provider
+        ]);
+        return SHA('sha256').update(dataToHash).digest('hex');
     }
 
     account (address: string) {
@@ -251,6 +270,46 @@ export class ERC20Stego extends Stego<ExecutionPlan> {
         return parseInt(this.getBinaryDataFromOperation(op).substr(0, 8).padStart(8, "0"), 2) + 1;
     }
 
+
+    async getAccountWithEnoughEth (quantity: number) {
+        for (const account of this.accounts) {
+            const eth = await this.getBalance(account.address, "eth");
+            
+            if (eth >= (this.minEth + quantity)) return account.address;
+        }
+    }
+
+    async getAccountWithEnoughTokens (erc20: string, quantity: number) {
+        for (const account of this.accounts) {
+            const eth = await this.getBalance(account.address, "eth");
+            const tokens = await this.getBalance(account.address, erc20);
+
+            if (eth >= this.minEth && tokens >= quantity) return account.address;
+        }
+    }
+    
+    async getBalance (addr: string, erc20: string) {
+        balanceCache[addr] = balanceCache[addr] || {};
+
+        if(balanceCache[addr][erc20]) return balanceCache[addr][erc20];
+        if (erc20 === "eth") return balanceCache[addr][erc20] = await getEthBalance(this, addr)
+        
+        return balanceCache[addr][erc20] = await getTokenBalance(this, erc20, addr);
+    }
+
+    publicKey () {
+        const publicConfig = generatePublicConfig({
+            ACCOUNTS: this.accounts,
+            CHANNEL: this.chan,
+            ERC20_TOKENS: this.erc20,
+            MAX_SPACING: this.maxSpacing,
+            MINIMUM_ETH: this.minEth,
+            NUMBER_OF_FRACTIONS: this.fractions,
+            WEB3_PROVIDER: this.provider
+        });
+
+        return Buffer.from(JSON.stringify(publicConfig));
+    }
 }
 
 export class ExecutionPlan extends Array<Operation> {
@@ -328,12 +387,10 @@ export class Execution {
     currentOp: Operation;
     nextOp: SendOperation;
     currentIndex: number = 0;
-    balanceCache: { [addr: string]: { [erc: string]: number }}
 
     constructor (public plan: ExecutionPlan) {
         this.currentOp = plan[0];
         this.nextOp = plan.find(e => e.type === "send") as SendOperation
-        this.balanceCache = {}
     }
 
     next () {
@@ -405,19 +462,19 @@ export class Execution {
     }
 
     async updateBalance (addr: string, erc20: string) {
-        this.balanceCache[addr] = this.balanceCache[addr] || {};
+        balanceCache[addr] = balanceCache[addr] || {};
 
-        delete this.balanceCache[addr][erc20];
+        delete balanceCache[addr][erc20];
         return await this.getBalance(addr, erc20)
     }
 
     async getBalance (addr: string, erc20: string) {
-        this.balanceCache[addr] = this.balanceCache[addr] || {};
+        balanceCache[addr] = balanceCache[addr] || {};
 
-        if(this.balanceCache[addr][erc20]) return this.balanceCache[addr][erc20];
-        if (erc20 === "eth") return this.balanceCache[addr][erc20] = await getEthBalance(this.plan.stego, addr)
+        if(balanceCache[addr][erc20]) return balanceCache[addr][erc20];
+        if (erc20 === "eth") return balanceCache[addr][erc20] = await getEthBalance(this.plan.stego, addr)
         
-        return this.balanceCache[addr][erc20] = await getTokenBalance(this.plan.stego, erc20, addr);
+        return balanceCache[addr][erc20] = await getTokenBalance(this.plan.stego, erc20, addr);
     }
 
     async supplyEth (op: SendOperation, quantity: number) {

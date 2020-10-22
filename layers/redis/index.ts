@@ -2,7 +2,7 @@ import Redis from "ioredis";
 
 import { IPFStorage } from "../ipfs";
 import { ERC20Stego } from "../stego";
-import { TYPE_FILEHASH, TYPE_REDISCMD } from "../../types";
+import { TYPE_FILEHASH, TYPE_REDISCMD } from "../../utils/types";
 
 const GLOBAL_DB = 15;
 const TEMP_DB = 14;

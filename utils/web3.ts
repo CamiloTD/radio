@@ -2,7 +2,7 @@ import { log, highlight } from "termx";
 import Web3 from "web3";
 import { ERC20Stego } from "../layers/stego";
 import HDWalletProvider from "@truffle/hdwallet-provider";
-import { Account } from "../types";
+import { Account } from "./types";
 const ERC_20_ABI = require('../erc20.json');
 
 const ERC20NamesCache: { [key: string]: string } = {};

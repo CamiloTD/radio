@@ -9,9 +9,10 @@
         "declaration": true,
         "sourceMap": true,
         "module": "commonjs",
-        "noImplicitUseStrict": true
+        "noImplicitUseStrict": true,
+        "lib": ["ES2015"]
     },
-    "files": ["./index.ts", "./zk.ts"],
+    "files": ["./index.ts", "radio.ts"],
     "exclude": ["**/node_modules", "**/*.spec.ts", "renewal/addresses.json"],
     "compileOnSave": true
 }

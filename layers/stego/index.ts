@@ -1,4 +1,4 @@
-import { CONTENT_TYPE } from '../../types';
+import { CONTENT_TYPE } from '../../utils/types';
 
 export abstract class Stego<T> {
     abstract hide (data: Buffer, type: CONTENT_TYPE): T;

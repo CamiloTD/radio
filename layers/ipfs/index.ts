@@ -9,7 +9,7 @@ import util from "util";
 import streamBuffers from "stream-buffers";
 
 import { ERC20Stego } from "../stego";
-import { TYPE_FILEHASH } from "../../types";
+import { TYPE_FILEHASH } from "../../utils/types";
 
 export const removeFile = util.promisify(fs.unlink);
 export const readFile = util.promisify(fs.readFile);
